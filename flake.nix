@@ -13,6 +13,47 @@
   }:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
+
+      # Fetch Deno dependencies in a separate derivation
+      denoDeps = pkgs.stdenvNoCC.mkDerivation {
+        name = "what-deno-deps";
+        src = self;
+        nativeBuildInputs = [pkgs.deno];
+
+        buildPhase = ''
+          export DENO_DIR=$out
+          deno cache main.ts
+        '';
+
+        installPhase = ''
+          echo "Dependencies cached in $DENO_DIR"
+        '';
+
+        outputHashMode = "recursive";
+        outputHashAlgo = "sha256";
+        outputHash = "sha256-mpzQvzIJCw5jQIpEfgvnlpobGA0sxC28J4Q5F92JdZ0=";
+      };
+
+      # Fetch the denort runtime binary needed for deno compile
+      denort = pkgs.stdenvNoCC.mkDerivation {
+        name = "denort-${pkgs.deno.version}";
+        src = pkgs.fetchurl {
+          url = "https://dl.deno.land/release/v${pkgs.deno.version}/denort-x86_64-unknown-linux-gnu.zip";
+          hash = "sha256-qCuGkPfCb23wgFoRReAhCPQ3o6GtagWnIyuuAdqw7Ns=";
+        };
+
+        nativeBuildInputs = [pkgs.unzip];
+
+        unpackPhase = ''
+          unzip $src
+        '';
+
+        installPhase = ''
+          mkdir -p $out/bin
+          cp denort $out/bin/denort
+          chmod +x $out/bin/denort
+        '';
+      };
     in {
       packages.default = pkgs.stdenv.mkDerivation {
         pname = "what";
@@ -30,24 +71,29 @@
           xclip
         ];
 
+        # Prevent Nix from corrupting the deno-compiled binary
+        dontAutoPatchELF = true;
+        dontStrip = true;
+
         buildPhase = ''
-          # No build needed - we run directly with deno
+          # Use pre-fetched dependencies
+          export DENO_DIR="${denoDeps}"
+
+          # Point deno compile to the pre-fetched denort binary
+          export DENORT_BIN="${denort}/bin/denort"
+
+          # Compile to standalone binary with cached dependencies
+          deno compile --allow-read --allow-run --cached-only --lock=./deno.lock --quiet -o what ./main.ts
         '';
 
         installPhase = ''
-          mkdir -p $out/bin $out/share/what
+          mkdir -p $out/bin
+          mv what $out/bin/what
+        '';
 
-          # Copy source files
-          cp -r main.ts src $out/share/what/
-
-          # Create wrapper script that runs deno
-          makeWrapper ${pkgs.deno}/bin/deno $out/bin/what \
-            --add-flags "run" \
-            --add-flags "--allow-read" \
-            --add-flags "--allow-run" \
-            --add-flags "--no-lock" \
-            --add-flags "--quiet" \
-            --add-flags "$out/share/what/main.ts" \
+        # Add external tools to PATH for the compiled binary
+        postInstall = ''
+          wrapProgram $out/bin/what \
             --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.tree pkgs.xsel pkgs.xclip]}
         '';
 
