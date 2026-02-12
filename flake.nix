@@ -31,7 +31,7 @@
 
         outputHashMode = "recursive";
         outputHashAlgo = "sha256";
-        outputHash = "sha256-mpzQvzIJCw5jQIpEfgvnlpobGA0sxC28J4Q5F92JdZ0=";
+        outputHash = "sha256-IIPMV6L3wAaX9+L12IgwEbM/QWoFwySZqdDJa7fjRy8=";
       };
 
       # Fetch the denort runtime binary needed for deno compile
